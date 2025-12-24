@@ -81,9 +81,42 @@ class AuctionAgentV2:
                             "max_pages": {
                                 "type": "integer",
                                 "description": "最大抓取页数,默认 20"
+                            },
+                            "fuzzy_match": {
+                                "type": "boolean",
+                                "description": "是否启用模糊匹配(智能搜索),默认 true"
                             }
                         },
                         "required": ["auction_url"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "search_lots_intelligently",
+                    "description": "智能搜索拍品 - 支持自然语言查询、模糊匹配、同义词扩展和相关性排序",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "auction_url": {
+                                "type": "string",
+                                "description": "拍卖场次的 URL"
+                            },
+                            "query": {
+                                "type": "string",
+                                "description": "自然语言搜索查询,例如 '找出所有金币' 或 'silver dollar'"
+                            },
+                            "fuzzy_match": {
+                                "type": "boolean",
+                                "description": "是否启用模糊匹配,默认 true"
+                            },
+                            "max_pages": {
+                                "type": "integer",
+                                "description": "最大抓取页数,默认 20"
+                            }
+                        },
+                        "required": ["auction_url", "query"]
                     }
                 }
             },
@@ -181,7 +214,8 @@ class AuctionAgentV2:
     
     def get_lots_from_auction(self, auction_url: str, 
                              keywords: Optional[List[str]] = None,
-                             max_pages: int = 20) -> List[Dict]:
+                             max_pages: int = 20,
+                             fuzzy_match: bool = True) -> List[Dict]:
         """
         深入拍卖场次获取所有拍品
         
@@ -189,6 +223,7 @@ class AuctionAgentV2:
             auction_url: 拍卖场次 URL
             keywords: 过滤关键词
             max_pages: 最大抓取页数
+            fuzzy_match: 是否启用模糊匹配
         
         Returns:
             拍品列表
@@ -200,9 +235,33 @@ class AuctionAgentV2:
         
         # 如果指定了关键词,进行过滤
         if keywords:
-            all_lots = self.lot_scraper.filter_lots_by_keyword(all_lots, keywords)
+            all_lots = self.lot_scraper.filter_lots_by_keyword(all_lots, keywords, fuzzy_match)
         
         return all_lots
+    
+    def search_lots_intelligently(self, auction_url: str, query: str,
+                                 fuzzy_match: bool = True, max_pages: int = 20) -> List[Dict]:
+        """
+        智能搜索拍品 - 支持自然语言查询、模糊匹配、同义词扩展
+        
+        Args:
+            auction_url: 拍卖场次 URL
+            query: 自然语言搜索查询
+            fuzzy_match: 是否启用模糊匹配
+            max_pages: 最大抓取页数
+        
+        Returns:
+            匹配的拍品列表(按相关性排序)
+        """
+        logger.info(f"智能搜索拍品: {query} in {auction_url}")
+        
+        # 获取所有拍品
+        all_lots = self.lot_scraper.get_all_lots_from_auction(auction_url, max_pages)
+        
+        # 使用智能搜索
+        matched_lots = self.lot_scraper.search_lots_intelligently(all_lots, query, fuzzy_match)
+        
+        return matched_lots
     
     def save_lots_to_file(self, lots_data: str, filename: str, format: str = 'json'):
         """
@@ -320,6 +379,8 @@ class AuctionAgentV2:
             result = self.search_auctions(**arguments)
         elif tool_name == "get_lots_from_auction":
             result = self.get_lots_from_auction(**arguments)
+        elif tool_name == "search_lots_intelligently":
+            result = self.search_lots_intelligently(**arguments)
         elif tool_name == "save_lots_to_file":
             result = self.save_lots_to_file(**arguments)
         elif tool_name == "search_and_export_lots":
@@ -346,9 +407,10 @@ class AuctionAgentV2:
 
 你有以下工具可以使用:
 1. search_auctions: 搜索拍卖场次,支持按时间、类别、关键词过滤
-2. get_lots_from_auction: 深入特定拍卖场次,获取所有拍品的详细信息
-3. save_lots_to_file: 将拍品信息保存到文件(JSON/CSV/TXT)
-4. search_and_export_lots: 组合操作 - 搜索拍卖、获取拍品、过滤并导出
+2. get_lots_from_auction: 深入特定拍卖场次,获取所有拍品的详细信息(支持关键词过滤和模糊匹配)
+3. search_lots_intelligently: 智能搜索拍品 - 支持自然语言查询、模糊匹配、同义词扩展和相关性排序
+4. save_lots_to_file: 将拍品信息保存到文件(JSON/CSV/TXT)
+5. search_and_export_lots: 组合操作 - 搜索拍卖、获取拍品、过滤并导出
 
 当用户提出请求时,你需要:
 1. 理解用户的意图
@@ -364,6 +426,7 @@ class AuctionAgentV2:
 
 重要功能:
 - 当用户需要获取拍品详细信息时,使用 get_lots_from_auction
+- 当用户使用自然语言进行模糊搜索时,优先使用 search_lots_intelligently(支持同义词、模糊匹配)
 - 当用户需要导出数据时,使用 save_lots_to_file 或 search_and_export_lots
 - search_and_export_lots 是最强大的工具,可以一次性完成搜索、获取、过滤和导出
 """

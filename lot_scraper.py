@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 import re
 import logging
 import time
+from difflib import SequenceMatcher
 
 from config import ZYTE_API_KEY
 
@@ -38,9 +39,7 @@ class LotScraper:
             
             payload = {
                 "url": url,
-                "browserHtml": True,
-                "javascript": True,
-                "httpResponseBody": True
+                "browserHtml": True
             }
             
             logger.info(f"使用 Zyte API 获取: {url}")
@@ -272,16 +271,19 @@ class LotScraper:
         else:
             return f"{base_url}?page={page}"
     
-    def filter_lots_by_keyword(self, lots: List[Dict], keywords: List[str]) -> List[Dict]:
+    def filter_lots_by_keyword(self, lots: List[Dict], keywords: List[str], 
+                               fuzzy_match: bool = True, min_score: float = 0.6) -> List[Dict]:
         """
-        按关键词过滤拍品
+        按关键词过滤拍品（支持智能匹配）
         
         Args:
             lots: 拍品列表
             keywords: 关键词列表
+            fuzzy_match: 是否启用模糊匹配
+            min_score: 模糊匹配的最小相似度分数（0-1）
         
         Returns:
-            过滤后的拍品列表
+            过滤后的拍品列表（按相关性评分排序）
         """
         if not keywords:
             return lots
@@ -292,16 +294,154 @@ class LotScraper:
             # 在标题和描述中搜索关键词
             title = lot.get('title', '').lower()
             description = lot.get('description', '').lower()
+            content = f"{title} {description}"
             
-            # 检查是否包含任一关键词
-            for keyword in keywords:
-                keyword_lower = keyword.lower()
-                if keyword_lower in title or keyword_lower in description:
-                    filtered.append(lot)
-                    break
+            # 计算相关性评分
+            score, matched_keywords = self._calculate_relevance_score(
+                content, keywords, fuzzy_match, min_score
+            )
+            
+            if score > 0:
+                lot_copy = lot.copy()
+                lot_copy['_relevance_score'] = score
+                lot_copy['_matched_keywords'] = matched_keywords
+                filtered.append(lot_copy)
+        
+        # 按相关性评分排序
+        filtered.sort(key=lambda x: x.get('_relevance_score', 0), reverse=True)
         
         logger.info(f"关键词过滤: {len(lots)} -> {len(filtered)}")
+        if filtered:
+            logger.info(f"最高相关性分数: {filtered[0].get('_relevance_score', 0):.2f}")
+        
         return filtered
+    
+    def _calculate_relevance_score(self, content: str, keywords: List[str], 
+                                   fuzzy_match: bool, min_score: float) -> tuple:
+        """
+        计算内容与关键词的相关性评分
+        
+        Args:
+            content: 要搜索的内容
+            keywords: 关键词列表
+            fuzzy_match: 是否启用模糊匹配
+            min_score: 最小匹配分数
+        
+        Returns:
+            (总分, 匹配的关键词列表)
+        """
+        score = 0
+        matched_keywords = []
+        content_lower = content.lower()
+        content_words = set(re.findall(r'\b\w+\b', content_lower))
+        
+        for keyword in keywords:
+            keyword_lower = keyword.lower()
+            
+            # 1. 完全匹配（最高分）
+            if keyword_lower in content_lower:
+                score += 10
+                matched_keywords.append((keyword, 'exact', 1.0))
+                continue
+            
+            # 2. 单词级别匹配
+            keyword_words = re.findall(r'\b\w+\b', keyword_lower)
+            word_matches = sum(1 for kw in keyword_words if kw in content_words)
+            if word_matches > 0:
+                word_score = (word_matches / len(keyword_words)) * 5
+                score += word_score
+                matched_keywords.append((keyword, 'partial', word_matches / len(keyword_words)))
+                continue
+            
+            # 3. 模糊匹配（如果启用）
+            if fuzzy_match:
+                best_ratio = 0
+                for content_word in content_words:
+                    ratio = SequenceMatcher(None, keyword_lower, content_word).ratio()
+                    best_ratio = max(best_ratio, ratio)
+                
+                if best_ratio >= min_score:
+                    score += best_ratio * 3
+                    matched_keywords.append((keyword, 'fuzzy', best_ratio))
+        
+        return score, matched_keywords
+    
+    def search_lots_intelligently(self, lots: List[Dict], query: str, 
+                                  fuzzy_match: bool = True) -> List[Dict]:
+        """
+        智能搜索拍品（自动提取查询词并应用同义词扩展）
+        
+        Args:
+            lots: 拍品列表
+            query: 搜索查询（自然语言）
+            fuzzy_match: 是否启用模糊匹配
+        
+        Returns:
+            匹配的拍品列表
+        """
+        # 提取关键词
+        keywords = self._extract_keywords_from_query(query)
+        
+        # 扩展同义词
+        keywords = self._expand_synonyms(keywords)
+        
+        logger.info(f"搜索关键词: {keywords}")
+        
+        # 使用增强的过滤功能
+        return self.filter_lots_by_keyword(lots, keywords, fuzzy_match)
+    
+    def _extract_keywords_from_query(self, query: str) -> List[str]:
+        """
+        从查询中提取关键词
+        
+        Args:
+            query: 自然语言查询
+        
+        Returns:
+            关键词列表
+        """
+        # 移除常见的停用词
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+                     'of', 'with', 'by', 'from', 'up', 'about', 'into', 'through', 'during',
+                     'including', 'all', 'any', 'some', 'find', 'search', 'get', 'show', 'list'}
+        
+        # 提取单词
+        words = re.findall(r'\b\w+\b', query.lower())
+        
+        # 过滤停用词
+        keywords = [w for w in words if w not in stop_words and len(w) > 2]
+        
+        return keywords
+    
+    def _expand_synonyms(self, keywords: List[str]) -> List[str]:
+        """
+        扩展关键词的同义词
+        
+        Args:
+            keywords: 原始关键词列表
+        
+        Returns:
+            扩展后的关键词列表
+        """
+        # 常见同义词映射（可以扩展）
+        synonyms = {
+            'gold': ['golden', 'au', 'aurum'],
+            'silver': ['ag', 'argentum'],
+            'coin': ['coins', 'coinage'],
+            'dollar': ['dollars', 'usd'],
+            'penny': ['pennies', 'cent', 'cents'],
+            'rare': ['scarce', 'uncommon', 'unique'],
+            'ancient': ['antique', 'old', 'historical'],
+            'morgan': ['morgan dollar'],
+            'eagle': ['double eagle', 'half eagle'],
+        }
+        
+        expanded = list(keywords)
+        for keyword in keywords:
+            if keyword.lower() in synonyms:
+                expanded.extend(synonyms[keyword.lower()])
+        
+        return list(set(expanded))  # 去重
     
     def save_lots_to_file(self, lots: List[Dict], filename: str, format: str = 'json'):
         """
