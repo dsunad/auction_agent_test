@@ -83,3 +83,5 @@
 2025-12-23 15:45:48,790 - agent_v2 - INFO - 处理用户指令: q
 2025-12-23 15:45:48,980 - httpx - INFO - HTTP Request: POST https://api.deepseek.com/v1/chat/completions "HTTP/1.1 200 OK"
 2025-12-23 15:45:52,960 - __main__ - INFO - Agent 已关闭
+2025-12-24 09:35:16,468 - __main__ - INFO - Agent V2 初始化完成
+2025-12-24 09:35:20,308 - __main__ - INFO - Agent 已关闭
