@@ -12,6 +12,7 @@ from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 from scraper import AuctionScraper
 from lot_scraper import LotScraper
 from ai_smart_browser import AISmartBrowser
+from hierarchical_browser import HierarchicalBrowser
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class AuctionAgentV2:
         self.scraper = AuctionScraper()
         self.lot_scraper = LotScraper()
         self.smart_browser = AISmartBrowser()  # AI 智能浏览器
+        self.hierarchical_browser = HierarchicalBrowser()  # 多层级浏览器
         self.model = DEEPSEEK_MODEL
         self.conversation_history = []
         
@@ -144,6 +146,31 @@ class AuctionAgentV2:
                             }
                         },
                         "required": ["auction_url", "search_query"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "browse_all_auction_sessions",
+                    "description": "🌟 多层级智能浏览 - 从拍卖网站首页开始，自动发现所有场次，遍历每个场次搜索拍品。适用于需要搜索整个网站的场景",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "index_url": {
+                                "type": "string",
+                                "description": "拍卖网站首页 URL，例如 https://auctions.stacksbowers.com/"
+                            },
+                            "search_query": {
+                                "type": "string",
+                                "description": "自然语言搜索要求，中文或英文。例如: '找出所有金币'"
+                            },
+                            "max_auctions": {
+                                "type": "integer",
+                                "description": "最多浏览多少个场次，None 表示全部（可能很慢）"
+                            }
+                        },
+                        "required": ["index_url", "search_query"]
                     }
                 }
             },
@@ -290,6 +317,30 @@ class AuctionAgentV2:
         
         return matched_lots
     
+    def browse_all_auction_sessions(self, index_url: str, search_query: str,
+                                    max_auctions: int = None) -> Dict:
+        """
+        多层级智能浏览 - 遍历所有拍卖场次
+        
+        Args:
+            index_url: 拍卖网站首页 URL
+            search_query: 搜索要求（自然语言）
+            max_auctions: 最多浏览多少个场次
+        
+        Returns:
+            包含所有场次结果的字典
+        """
+        logger.info(f"多层级浏览: {search_query} from {index_url}")
+        
+        # 使用层级浏览器
+        result = self.hierarchical_browser.browse_all_auctions(
+            index_url, 
+            search_query, 
+            max_auctions
+        )
+        
+        return result
+    
     def ai_smart_browse(self, auction_url: str, search_query: str,
                        max_pages: int = 1) -> List[Dict]:
         """
@@ -430,6 +481,8 @@ class AuctionAgentV2:
             result = self.search_lots_intelligently(**arguments)
         elif tool_name == "ai_smart_browse":
             result = self.ai_smart_browse(**arguments)
+        elif tool_name == "browse_all_auction_sessions":
+            result = self.browse_all_auction_sessions(**arguments)
         elif tool_name == "save_lots_to_file":
             result = self.save_lots_to_file(**arguments)
         elif tool_name == "search_and_export_lots":
@@ -475,6 +528,8 @@ class AuctionAgentV2:
 - "古币" 或 "ancient" -> ["Ancient Coins"]
 
 重要功能:
+- 当用户提供网站首页 URL (如 https://auctions.stacksbowers.com/) 时,使用 browse_all_auction_sessions 遍历所有场次
+- 当用户提供具体场次 URL 时,使用 ai_smart_browse 浏览该场次
 - 当用户需要获取拍品详细信息时,使用 get_lots_from_auction
 - 当用户使用自然语言进行模糊搜索时,优先使用 ai_smart_browse(支持中文、英文,最智能)
 - 如果 ai_smart_browse 不可用,使用 search_lots_intelligently(支持同义词、模糊匹配)
