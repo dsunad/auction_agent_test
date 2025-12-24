@@ -11,6 +11,7 @@ from openai import OpenAI
 from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 from scraper import AuctionScraper
 from lot_scraper import LotScraper
+from ai_smart_browser import AISmartBrowser
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class AuctionAgentV2:
         )
         self.scraper = AuctionScraper()
         self.lot_scraper = LotScraper()
+        self.smart_browser = AISmartBrowser()  # AI 智能浏览器
         self.model = DEEPSEEK_MODEL
         self.conversation_history = []
         
@@ -117,6 +119,31 @@ class AuctionAgentV2:
                             }
                         },
                         "required": ["auction_url", "query"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "ai_smart_browse",
+                    "description": "AI 智能浏览 - 使用 AI 阅读理解网页内容,自动识别和筛选拍品。支持中文和英文自然语言查询,无需精确关键词",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "auction_url": {
+                                "type": "string",
+                                "description": "拍卖场次的 URL"
+                            },
+                            "search_query": {
+                                "type": "string",
+                                "description": "自然语言搜索要求,中文或英文都可以。例如: '找出所有金币', 'find silver medals'"
+                            },
+                            "max_pages": {
+                                "type": "integer",
+                                "description": "最大浏览页数,默认 1"
+                            }
+                        },
+                        "required": ["auction_url", "search_query"]
                     }
                 }
             },
@@ -263,6 +290,26 @@ class AuctionAgentV2:
         
         return matched_lots
     
+    def ai_smart_browse(self, auction_url: str, search_query: str,
+                       max_pages: int = 1) -> List[Dict]:
+        """
+        AI 智能浏览 - 使用 AI 阅读理解网页内容
+        
+        Args:
+            auction_url: 拍卖场次 URL
+            search_query: 自然语言搜索要求（中文或英文）
+            max_pages: 最大浏览页数
+        
+        Returns:
+            符合要求的拍品列表
+        """
+        logger.info(f"AI 智能浏览: {search_query} in {auction_url}")
+        
+        # 使用 AI 智能浏览器
+        matched_lots = self.smart_browser.smart_browse(auction_url, search_query, max_pages)
+        
+        return matched_lots
+    
     def save_lots_to_file(self, lots_data: str, filename: str, format: str = 'json'):
         """
         保存拍品到文件
@@ -381,6 +428,8 @@ class AuctionAgentV2:
             result = self.get_lots_from_auction(**arguments)
         elif tool_name == "search_lots_intelligently":
             result = self.search_lots_intelligently(**arguments)
+        elif tool_name == "ai_smart_browse":
+            result = self.ai_smart_browse(**arguments)
         elif tool_name == "save_lots_to_file":
             result = self.save_lots_to_file(**arguments)
         elif tool_name == "search_and_export_lots":
@@ -409,8 +458,9 @@ class AuctionAgentV2:
 1. search_auctions: 搜索拍卖场次,支持按时间、类别、关键词过滤
 2. get_lots_from_auction: 深入特定拍卖场次,获取所有拍品的详细信息(支持关键词过滤和模糊匹配)
 3. search_lots_intelligently: 智能搜索拍品 - 支持自然语言查询、模糊匹配、同义词扩展和相关性排序
-4. save_lots_to_file: 将拍品信息保存到文件(JSON/CSV/TXT)
-5. search_and_export_lots: 组合操作 - 搜索拍卖、获取拍品、过滤并导出
+4. ai_smart_browse: 🌟 AI 智能浏览 - 使用 AI 阅读理解网页,自动识别和筛选拍品。支持中文/英文自然语言,无需精确关键词（推荐）
+5. save_lots_to_file: 将拍品信息保存到文件(JSON/CSV/TXT)
+6. search_and_export_lots: 组合操作 - 搜索拍卖、获取拍品、过滤并导出
 
 当用户提出请求时,你需要:
 1. 理解用户的意图
@@ -426,7 +476,8 @@ class AuctionAgentV2:
 
 重要功能:
 - 当用户需要获取拍品详细信息时,使用 get_lots_from_auction
-- 当用户使用自然语言进行模糊搜索时,优先使用 search_lots_intelligently(支持同义词、模糊匹配)
+- 当用户使用自然语言进行模糊搜索时,优先使用 ai_smart_browse(支持中文、英文,最智能)
+- 如果 ai_smart_browse 不可用,使用 search_lots_intelligently(支持同义词、模糊匹配)
 - 当用户需要导出数据时,使用 save_lots_to_file 或 search_and_export_lots
 - search_and_export_lots 是最强大的工具,可以一次性完成搜索、获取、过滤和导出
 """
@@ -499,4 +550,6 @@ class AuctionAgentV2:
     def reset_conversation(self):
         """重置对话历史"""
         self.conversation_history = []
+        logger.info("对话历史已重置")
+ self.conversation_history = []
         logger.info("对话历史已重置")
