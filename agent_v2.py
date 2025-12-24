@@ -551,5 +551,3 @@ class AuctionAgentV2:
         """重置对话历史"""
         self.conversation_history = []
         logger.info("对话历史已重置")
- self.conversation_history = []
-        logger.info("对话历史已重置")
